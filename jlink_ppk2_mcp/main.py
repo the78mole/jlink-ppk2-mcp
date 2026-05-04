@@ -43,6 +43,10 @@ class HardwareManager:
         self._rtt_thread: threading.Thread | None = None
         # Steuerflag: RTT-Thread aktiv?
         self._rtt_laeuft: bool = False
+        # Zuletzt gesetzte Spannung in Millivolt (Zustandsverfolgung für Web-UI)
+        self.voltage_mv: int = 3300
+        # Versorgungsstatus des DUT (Zustandsverfolgung für Web-UI)
+        self.power_on: bool = False
 
     # ------------------------------------------------------------------
     # PPK2
@@ -66,6 +70,39 @@ class HardwareManager:
         """Stellt sicher, dass eine PPK2-Verbindung besteht."""
         if self.ppk2 is None:
             self.ppk2_verbinden()
+
+    def ppk2_strom_lesen(self, dauer_ms: int = 200) -> dict[str, Any]:
+        """Misst kurz den aktuellen Strom und gibt Durchschnitt, Min, Max zurück.
+
+        Args:
+            dauer_ms: Messdauer in Millisekunden (Standard: 200 ms).
+
+        Returns:
+            Dict mit ``durchschnitt_ua``, ``min_ua``, ``max_ua``, ``anzahl_messwerte``
+            oder ``fehler``-Schlüssel bei Problemen.
+        """
+        self.ppk2_sicherstellen()
+        self.ppk2.start_measuring()  # type: ignore[union-attr]
+        time.sleep(max(dauer_ms, 50) / 1000.0)
+        self.ppk2.stop_measuring()   # type: ignore[union-attr]
+        samples_raw, _ = self.ppk2.get_data()  # type: ignore[union-attr]
+
+        BYTES_PER_SAMPLE = 3
+        current_ua: list[float] = []
+        for i in range(0, len(samples_raw), BYTES_PER_SAMPLE):
+            sample = samples_raw[i : i + BYTES_PER_SAMPLE]
+            if len(sample) == BYTES_PER_SAMPLE:
+                current_ua.append(self.ppk2.get_sample_value(sample))  # type: ignore[union-attr]
+
+        if not current_ua:
+            return {"fehler": "Keine Messdaten erhalten."}
+
+        return {
+            "durchschnitt_ua": round(sum(current_ua) / len(current_ua), 2),
+            "min_ua":          round(min(current_ua), 2),
+            "max_ua":          round(max(current_ua), 2),
+            "anzahl_messwerte": len(current_ua),
+        }
 
     # ------------------------------------------------------------------
     # J-Link
@@ -236,6 +273,9 @@ def set_power(voltage_mv: int, state: bool) -> str:
     try:
         manager.ppk2.set_source_voltage(voltage_mv)  # type: ignore[union-attr]
         manager.ppk2.toggle_DUT_power(state)          # type: ignore[union-attr]
+        # Zustand für Web-UI merken
+        manager.voltage_mv = voltage_mv
+        manager.power_on = state
         status_text = "eingeschaltet" if state else "ausgeschaltet"
         return f"PPK2: Spannung auf {voltage_mv} mV gesetzt, Ausgang {status_text}."
     except Exception as exc:

@@ -13,10 +13,13 @@ dependencies = [
     "mcp>=1.27.0",
     "ppk2-api>=0.9.2",
     "pylink-square>=2.0.1",
+    "fastapi>=0.136.1",
+    "uvicorn[standard]>=0.46.0",
 ]
 
 [project.scripts]
 jlink-ppk2-mcp = "jlink_ppk2_mcp.main:main"
+jlink-ppk2-web = "jlink_ppk2_mcp.web:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["jlink_ppk2_mcp"]
